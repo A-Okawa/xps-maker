@@ -32,6 +32,12 @@ def check_password():
 if not check_password():
     st.stop()
 
+st.markdown("""
+<style>
+html, body, [class*="css"] { font-family: Arial, sans-serif !important; }
+</style>
+""", unsafe_allow_html=True)
+
 st.title("XPS Analyzer")
 st.caption("複数スペクトル重ね合わせ・バックグラウンド・ピーク成分・論文用TIFF出力")
 
@@ -118,11 +124,12 @@ def color_picker_popover(key: str, default_hex: str):
                         f'margin-bottom:2px"></div>',
                         unsafe_allow_html=True,
                     )
-                    if st.button("✓" if selected else " ",
-                                 key=f"{key}_{family}_{j}", help=name,
-                                 use_container_width=True):
-                        st.session_state[key] = hex_c
-                        st.rerun()
+                    def _cb(k=key, h=hex_c):
+                        st.session_state[k] = h
+                    st.button("✓" if selected else " ",
+                             key=f"{key}_{family}_{j}", help=name,
+                             use_container_width=True,
+                             on_click=_cb)
     return st.session_state[key]
 
 # ===== CSV 読み込み =====
@@ -266,23 +273,35 @@ if xps_files:
                 st.markdown("#### XPS スペクトル")
                 for i, f in enumerate(xps_files):
                     default_name = os.path.splitext(f.name)[0]
-                    default_hex  = ALL_COLORS[i % len(ALL_COLORS)]
+                    default_hex  = "#000000"
                     with st.expander(f"**{i+1}. {default_name}**", expanded=True):
                         order   = st.number_input("表示順", value=i+1, min_value=1, max_value=50, key=f"ord_{i}")
                         visible = st.checkbox("表示する", value=True, key=f"vis_{i}")
                         label   = label_input(key=f"lbl_{i}", default=default_name)
-                        chosen_color = color_picker_popover(f"xps_color_{i}", default_hex)
+                        chosen_color = color_picker_popover(f"xps_color_{f.name}", default_hex)
 
                         # 個別オフセットスライダー
                         eoff_key = f"extra_offset_{i}"
+                        eoff_num_key = f"extra_offset_num_{i}"
                         if eoff_key not in st.session_state:
                             st.session_state[eoff_key] = 0.0
+                        if eoff_num_key not in st.session_state:
+                            st.session_state[eoff_num_key] = 0.0
                         if normalize:
                             st.slider("オフセット調整", min_value=-5.0, max_value=15.0,
                                       step=0.05, key=eoff_key)
                         else:
-                            st.slider("Y位置（絶対値）", min_value=-100000.0, max_value=500000.0,
-                                      step=100.0, key=eoff_key)
+                            def _from_slider(ek=eoff_key, nk=eoff_num_key):
+                                st.session_state[nk] = st.session_state[ek]
+                            def _from_num(ek=eoff_key, nk=eoff_num_key):
+                                st.session_state[ek] = st.session_state[nk]
+                            col_sl, col_ni = st.columns([3, 2])
+                            with col_sl:
+                                st.slider("Y位置（絶対値）", min_value=-100000.0, max_value=500000.0,
+                                          step=100.0, key=eoff_key, on_change=_from_slider)
+                            with col_ni:
+                                st.number_input("数値入力 (eV)", step=100.0,
+                                               key=eoff_num_key, on_change=_from_num)
 
                         # 成分の色設定
                         n_comps = _comp_counts.get(i, 0)
@@ -327,7 +346,7 @@ if xps_files:
             orders.append(i + 1)
             visibles.append(st.session_state.get(f"vis_{i}", True))
             labels.append(st.session_state.get(f"_val_lbl_{i}", os.path.splitext(f.name)[0]))
-            colors_sel.append(st.session_state.get(f"xps_color_{i}", ALL_COLORS[i % len(ALL_COLORS)]))
+            colors_sel.append(st.session_state.get(f"xps_color_{f.name}", "#000000"))
         sort_idx = list(range(len(xps_files)))
 
     # ===== データをキャッシュ読み込み =====
