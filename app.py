@@ -87,15 +87,15 @@ def label_input(key: str, default: str = "") -> str:
     inp = st.text_input("ラベル", value=st.session_state[val_key], key=inp_key)
     st.session_state[val_key] = inp
     c1, c2, c3 = st.columns(3)
-    if c1.button("＋italic", key=f"_bi_{key}", use_container_width=True):
+    if c1.button("＋italic", key=f"_bi_{key}", width='stretch'):
         st.session_state[val_key] = inp + r"$\it{TEXT}$"
         st.session_state[ver_key] += 1
         st.rerun()
-    if c2.button("＋下付き", key=f"_bs_{key}", use_container_width=True):
+    if c2.button("＋下付き", key=f"_bs_{key}", width='stretch'):
         st.session_state[val_key] = inp + r"$_{N}$"
         st.session_state[ver_key] += 1
         st.rerun()
-    if c3.button("＋上付き", key=f"_bp_{key}", use_container_width=True):
+    if c3.button("＋上付き", key=f"_bp_{key}", width='stretch'):
         st.session_state[val_key] = inp + r"$^{N}$"
         st.session_state[ver_key] += 1
         st.rerun()
@@ -111,7 +111,7 @@ def color_picker_popover(key: str, default_hex: str):
         f'border:1px solid #ccc;margin-bottom:4px"></div>',
         unsafe_allow_html=True,
     )
-    with st.popover("🎨 色を変更", use_container_width=True):
+    with st.popover("🎨 色を変更", width='stretch'):
         for family, colors in PALETTE_24.items():
             st.caption(family)
             cols = st.columns(len(colors))
@@ -128,7 +128,7 @@ def color_picker_popover(key: str, default_hex: str):
                         st.session_state[k] = h
                     st.button("✓" if selected else " ",
                              key=f"{key}_{family}_{j}", help=name,
-                             use_container_width=True,
+                             width='stretch',
                              on_click=_cb)
     return st.session_state[key]
 
@@ -381,7 +381,7 @@ if xps_files:
     # ===== matplotlib 図（TIFF/PNG 出力用）=====
     def build_figure():
         plt.rcParams.update({
-            "font.family":      "Arial",
+            "font.family":      ["Arial", "Liberation Sans", "DejaVu Sans", "sans-serif"],
             "font.size":        font_size,
             "mathtext.fontset": "custom",
             "mathtext.it":      "Arial:italic",
@@ -613,7 +613,7 @@ if xps_files:
     with col_graph:
         st.caption("ドラッグで範囲ズーム ／ ダブルクリックでリセット")
         pfig = build_plotly_figure()
-        st.plotly_chart(pfig, use_container_width=True, config={
+        st.plotly_chart(pfig, width='stretch', config={
             "scrollZoom": True,
             "modeBarButtonsToAdd": ["drawrect"],
             "modeBarButtonsToRemove": ["lasso2d", "select2d"],
@@ -624,7 +624,7 @@ if xps_files:
 
         # 出力プレビュー（ダウンロード不要で確認）
         with st.expander("📄 出力画像プレビュー（論文用 matplotlib）", expanded=False):
-            st.pyplot(fig, use_container_width=True)
+            st.pyplot(fig, width='stretch')
 
         buf = io.BytesIO()
         fig.savefig(buf, format="tiff", dpi=dpi_export, bbox_inches="tight")
