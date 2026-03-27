@@ -87,15 +87,15 @@ def label_input(key: str, default: str = "") -> str:
     inp = st.text_input("ラベル", value=st.session_state[val_key], key=inp_key)
     st.session_state[val_key] = inp
     c1, c2, c3 = st.columns(3)
-    if c1.button("＋italic", key=f"_bi_{key}", width='stretch'):
+    if c1.button("＋italic", key=f"_bi_{key}", use_container_width=True):
         st.session_state[val_key] = inp + r"$\it{TEXT}$"
         st.session_state[ver_key] += 1
         st.rerun()
-    if c2.button("＋下付き", key=f"_bs_{key}", width='stretch'):
+    if c2.button("＋下付き", key=f"_bs_{key}", use_container_width=True):
         st.session_state[val_key] = inp + r"$_{N}$"
         st.session_state[ver_key] += 1
         st.rerun()
-    if c3.button("＋上付き", key=f"_bp_{key}", width='stretch'):
+    if c3.button("＋上付き", key=f"_bp_{key}", use_container_width=True):
         st.session_state[val_key] = inp + r"$^{N}$"
         st.session_state[ver_key] += 1
         st.rerun()
@@ -128,7 +128,7 @@ def color_picker_popover(key: str, default_hex: str):
                         st.session_state[k] = h
                     st.button("✓" if selected else " ",
                              key=f"{key}_{family}_{j}", help=name,
-                             width='stretch',
+                             use_container_width=True,
                              on_click=_cb)
     return st.session_state[key]
 
