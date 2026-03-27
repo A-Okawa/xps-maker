@@ -111,7 +111,7 @@ def color_picker_popover(key: str, default_hex: str):
         f'border:1px solid #ccc;margin-bottom:4px"></div>',
         unsafe_allow_html=True,
     )
-    with st.popover("🎨 色を変更", width='stretch'):
+    with st.popover("🎨 色を変更", use_container_width=True):
         for family, colors in PALETTE_24.items():
             st.caption(family)
             cols = st.columns(len(colors))
@@ -613,7 +613,7 @@ if xps_files:
     with col_graph:
         st.caption("ドラッグで範囲ズーム ／ ダブルクリックでリセット")
         pfig = build_plotly_figure()
-        st.plotly_chart(pfig, width='stretch', config={
+        st.plotly_chart(pfig, use_container_width=True, config={
             "scrollZoom": True,
             "modeBarButtonsToAdd": ["drawrect"],
             "modeBarButtonsToRemove": ["lasso2d", "select2d"],
@@ -624,7 +624,7 @@ if xps_files:
 
         # 出力プレビュー（ダウンロード不要で確認）
         with st.expander("📄 出力画像プレビュー（論文用 matplotlib）", expanded=False):
-            st.pyplot(fig, width='stretch')
+            st.pyplot(fig, use_container_width=True)
 
         buf = io.BytesIO()
         fig.savefig(buf, format="tiff", dpi=dpi_export, bbox_inches="tight")
