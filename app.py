@@ -18,7 +18,10 @@ st.set_page_config(page_title="XPS Analyzer", page_icon="⚡", layout="wide")
 def check_password():
     if st.session_state.get("authenticated"):
         return True
-    pwd = st.secrets.get("password", "")
+    try:
+        pwd = st.secrets.get("password", "")
+    except Exception:
+        pwd = ""
     st.title("⚡ XPS Analyzer")
     entered = st.text_input("パスワードを入力してください", type="password")
     if st.button("ログイン"):
@@ -31,6 +34,12 @@ def check_password():
 
 if not check_password():
     st.stop()
+
+st.markdown("""
+<style>
+html, body, [class*="css"] { font-family: Arial, sans-serif !important; }
+</style>
+""", unsafe_allow_html=True)
 
 st.title("XPS Analyzer")
 st.caption("複数スペクトル重ね合わせ・バックグラウンド・ピーク成分・論文用TIFF出力")
@@ -81,18 +90,22 @@ def label_input(key: str, default: str = "") -> str:
     inp = st.text_input("ラベル", value=st.session_state[val_key], key=inp_key)
     st.session_state[val_key] = inp
     c1, c2, c3 = st.columns(3)
-    if c1.button("＋italic", key=f"_bi_{key}", use_container_width=True):
-        st.session_state[val_key] = inp + r"$\it{TEXT}$"
-        st.session_state[ver_key] += 1
-        st.rerun()
-    if c2.button("＋下付き", key=f"_bs_{key}", use_container_width=True):
-        st.session_state[val_key] = inp + r"$_{N}$"
-        st.session_state[ver_key] += 1
-        st.rerun()
-    if c3.button("＋上付き", key=f"_bp_{key}", use_container_width=True):
-        st.session_state[val_key] = inp + r"$^{N}$"
-        st.session_state[ver_key] += 1
-        st.rerun()
+
+    def _add_italic(vk=val_key, vr=ver_key):
+        st.session_state[vk] = st.session_state[vk] + r"$\it{TEXT}$"
+        st.session_state[vr] += 1
+
+    def _add_sub(vk=val_key, vr=ver_key):
+        st.session_state[vk] = st.session_state[vk] + r"$_{N}$"
+        st.session_state[vr] += 1
+
+    def _add_sup(vk=val_key, vr=ver_key):
+        st.session_state[vk] = st.session_state[vk] + r"$^{N}$"
+        st.session_state[vr] += 1
+
+    c1.button("＋italic", key=f"_bi_{key}", on_click=_add_italic)
+    c2.button("＋下付き", key=f"_bs_{key}", on_click=_add_sub)
+    c3.button("＋上付き", key=f"_bp_{key}", on_click=_add_sup)
     return st.session_state[val_key]
 
 # ===== カラーポップアップ =====
@@ -105,7 +118,7 @@ def color_picker_popover(key: str, default_hex: str):
         f'border:1px solid #ccc;margin-bottom:4px"></div>',
         unsafe_allow_html=True,
     )
-    with st.popover("🎨 色を変更", use_container_width=True):
+    with st.popover("🎨 色を変更"):
         for family, colors in PALETTE_24.items():
             st.caption(family)
             cols = st.columns(len(colors))
@@ -118,11 +131,11 @@ def color_picker_popover(key: str, default_hex: str):
                         f'margin-bottom:2px"></div>',
                         unsafe_allow_html=True,
                     )
-                    if st.button("✓" if selected else " ",
-                                 key=f"{key}_{family}_{j}", help=name,
-                                 use_container_width=True):
-                        st.session_state[key] = hex_c
-                        st.rerun()
+                    def _cb(k=key, h=hex_c):
+                        st.session_state[k] = h
+                    st.button("✓" if selected else " ",
+                             key=f"{key}_{family}_{j}", help=name,
+                             on_click=_cb)
     return st.session_state[key]
 
 # ===== CSV 読み込み =====
@@ -266,31 +279,41 @@ if xps_files:
                 st.markdown("#### XPS スペクトル")
                 for i, f in enumerate(xps_files):
                     default_name = os.path.splitext(f.name)[0]
-                    default_hex  = ALL_COLORS[i % len(ALL_COLORS)]
+                    default_hex  = "#000000"
                     with st.expander(f"**{i+1}. {default_name}**", expanded=True):
                         order   = st.number_input("表示順", value=i+1, min_value=1, max_value=50, key=f"ord_{i}")
                         visible = st.checkbox("表示する", value=True, key=f"vis_{i}")
                         label   = label_input(key=f"lbl_{i}", default=default_name)
-                        chosen_color = color_picker_popover(f"xps_color_{i}", default_hex)
+                        chosen_color = color_picker_popover(f"xps_color_{f.name}", default_hex)
 
-                        # 個別オフセットスライダー
-                        eoff_key = f"extra_offset_{i}"
+                        # 個別オフセット
+                        eoff_key     = f"extra_offset_{i}"
+                        eoff_num_key = f"extra_offset_num_{i}"
                         if eoff_key not in st.session_state:
                             st.session_state[eoff_key] = 0.0
+                        if eoff_num_key not in st.session_state:
+                            st.session_state[eoff_num_key] = 0.0
                         if normalize:
                             st.slider("オフセット調整", min_value=-5.0, max_value=15.0,
                                       step=0.05, key=eoff_key)
                         else:
-                            st.slider("Y位置（絶対値）", min_value=-100000.0, max_value=500000.0,
-                                      step=100.0, key=eoff_key)
+                            def _from_slider(ek=eoff_key, nk=eoff_num_key):
+                                st.session_state[nk] = st.session_state[ek]
+                            def _from_num(ek=eoff_key, nk=eoff_num_key):
+                                st.session_state[ek] = st.session_state[nk]
+                            col_sl, col_ni = st.columns([3, 2])
+                            with col_sl:
+                                st.slider("Y位置（絶対値）", min_value=-100000.0, max_value=500000.0,
+                                          step=100.0, key=eoff_key, on_change=_from_slider)
+                            with col_ni:
+                                st.number_input("数値入力 (eV)", value=float(st.session_state[eoff_num_key]),
+                                               step=100.0, key=eoff_num_key, on_change=_from_num)
 
                         # 成分の色設定
                         n_comps = _comp_counts.get(i, 0)
                         if n_comps > 0 and show_components:
                             st.markdown("**ピーク成分の色**")
                             st.caption("同じグループ番号の成分は同色になります（ダブレット対応）")
-                            # グループ番号ごとに色を1つ設定
-                            # まずグループ番号をユーザーが設定
                             groups = []
                             _period = max(1, n_comps // 2)
                             for j in range(n_comps):
@@ -303,7 +326,6 @@ if xps_files:
                                     key=gkey,
                                 )
                                 groups.append(g)
-                            # グループごとに色ピッカーを表示
                             unique_groups = sorted(set(groups))
                             st.markdown("**グループの色**")
                             for g in unique_groups:
@@ -327,7 +349,7 @@ if xps_files:
             orders.append(i + 1)
             visibles.append(st.session_state.get(f"vis_{i}", True))
             labels.append(st.session_state.get(f"_val_lbl_{i}", os.path.splitext(f.name)[0]))
-            colors_sel.append(st.session_state.get(f"xps_color_{i}", ALL_COLORS[i % len(ALL_COLORS)]))
+            colors_sel.append(st.session_state.get(f"xps_color_{f.name}", "#000000"))
         sort_idx = list(range(len(xps_files)))
 
     # ===== データをキャッシュ読み込み =====
@@ -362,11 +384,12 @@ if xps_files:
     # ===== matplotlib 図（TIFF/PNG 出力用）=====
     def build_figure():
         plt.rcParams.update({
-            "font.family":      "Arial",
+            "font.family":      "sans-serif",
+            "font.sans-serif":  ["Arial", "Liberation Sans", "DejaVu Sans"],
             "font.size":        font_size,
             "mathtext.fontset": "custom",
-            "mathtext.it":      "Arial:italic",
-            "mathtext.rm":      "Arial",
+            "mathtext.it":      "DejaVu Sans:italic",
+            "mathtext.rm":      "DejaVu Sans",
         })
         fig, ax = plt.subplots(figsize=(fig_width, fig_height))
 
@@ -430,7 +453,7 @@ if xps_files:
                                         color=cc, alpha=comp_alpha, zorder=1)
                     ax.plot(energy, y_comp, color=cc, linewidth=0.8, alpha=0.8, zorder=2)
 
-        # サンプルラベル（Plotly と同じ座標ロジック）
+        # サンプルラベル
         if show_side_labels:
             if reverse_x:
                 left_x  = xlim_hi - label_offset_x
@@ -603,7 +626,6 @@ if xps_files:
 
         fig = build_figure()
 
-        # 出力プレビュー（ダウンロード不要で確認）
         with st.expander("📄 出力画像プレビュー（論文用 matplotlib）", expanded=False):
             st.pyplot(fig, use_container_width=True)
 
