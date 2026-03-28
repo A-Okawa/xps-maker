@@ -139,61 +139,67 @@ def color_picker_popover(key: str, default_hex: str):
     return st.session_state[key]
 
 # ===== CSV 読み込み =====
+@st.cache_data(show_spinner=False)
+def _parse_xps_csv(file_bytes: bytes):
+    content = file_bytes.decode("utf-8", errors="ignore")
+    df = pd.read_csv(io.StringIO(content))
+    if len(df.columns) <= 2:
+        try:
+            df_num = df.apply(pd.to_numeric, errors="coerce")
+            if df_num.notna().all().all():
+                return {
+                    "energy": df_num.iloc[:, 0].values,
+                    "spectrum": df_num.iloc[:, 1].values,
+                    "composite": None,
+                    "background": None,
+                    "components": [],
+                    "component_names": [],
+                }
+        except Exception:
+            pass
+    energy_col = None
+    for col in df.columns:
+        if "energy" in col.lower() or "binding" in col.lower():
+            energy_col = col
+            break
+    if energy_col is None:
+        energy_col = df.columns[0]
+    result = {
+        "energy": pd.to_numeric(df[energy_col], errors="coerce").values,
+        "spectrum": None,
+        "composite": None,
+        "background": None,
+        "components": [],
+        "component_names": [],
+    }
+    for col in df.columns:
+        if col == energy_col:
+            continue
+        vals = pd.to_numeric(df[col], errors="coerce").values
+        col_lower = col.lower()
+        if "composite" in col_lower or "envelope" in col_lower:
+            result["composite"] = vals
+        elif col_lower in ("spectrum", "intensity", "counts", "cps"):
+            result["spectrum"] = vals
+        elif "spectrum" in col_lower or col_lower == "intensity":
+            if result["spectrum"] is None:
+                result["spectrum"] = vals
+        elif "background" in col_lower or "bg" in col_lower or "backgr" in col_lower:
+            result["background"] = vals
+        elif col.startswith("[") or "component" in col_lower or "peak" in col_lower:
+            result["components"].append(vals)
+            result["component_names"].append(col)
+    if result["spectrum"] is None:
+        for col in df.columns:
+            if col != energy_col:
+                result["spectrum"] = pd.to_numeric(df[col], errors="coerce").values
+                break
+    return result
+
+
 def read_xps_csv(file_bytes: bytes):
     try:
-        content = file_bytes.decode("utf-8", errors="ignore")
-        df = pd.read_csv(io.StringIO(content))
-        if len(df.columns) <= 2:
-            try:
-                df_num = df.apply(pd.to_numeric, errors="coerce")
-                if df_num.notna().all().all():
-                    return {
-                        "energy": df_num.iloc[:, 0].values,
-                        "spectrum": df_num.iloc[:, 1].values,
-                        "background": None,
-                        "components": [],
-                        "component_names": [],
-                    }
-            except Exception:
-                pass
-        energy_col = None
-        for col in df.columns:
-            if "energy" in col.lower() or "binding" in col.lower():
-                energy_col = col
-                break
-        if energy_col is None:
-            energy_col = df.columns[0]
-        result = {
-            "energy": pd.to_numeric(df[energy_col], errors="coerce").values,
-            "spectrum": None,
-            "composite": None,
-            "background": None,
-            "components": [],
-            "component_names": [],
-        }
-        for col in df.columns:
-            if col == energy_col:
-                continue
-            vals = pd.to_numeric(df[col], errors="coerce").values
-            col_lower = col.lower()
-            if "composite" in col_lower or "envelope" in col_lower:
-                result["composite"] = vals
-            elif col_lower in ("spectrum", "intensity", "counts", "cps"):
-                result["spectrum"] = vals
-            elif "spectrum" in col_lower or col_lower == "intensity":
-                if result["spectrum"] is None:
-                    result["spectrum"] = vals
-            elif "background" in col_lower or "bg" in col_lower or "backgr" in col_lower:
-                result["background"] = vals
-            elif col.startswith("[") or "component" in col_lower or "peak" in col_lower:
-                result["components"].append(vals)
-                result["component_names"].append(col)
-        if result["spectrum"] is None:
-            for col in df.columns:
-                if col != energy_col:
-                    result["spectrum"] = pd.to_numeric(df[col], errors="coerce").values
-                    break
-        return result
+        return _parse_xps_csv(file_bytes)
     except Exception as e:
         st.warning(f"CSV 読み込みエラー: {e}")
         return None
@@ -211,8 +217,9 @@ if xps_files:
     _all_e = []
     for _idx, _f in enumerate(xps_files):
         try:
-            _d = read_xps_csv(_f.read())
+            _raw = _f.read()
             _f.seek(0)
+            _d = _parse_xps_csv(_raw)
             if _d:
                 if _d["energy"] is not None:
                     _all_e.extend(_d["energy"].tolist())
@@ -364,7 +371,7 @@ if xps_files:
     def load_data(i):
         raw = xps_files[i].read()
         xps_files[i].seek(0)
-        return read_xps_csv(raw)
+        return _parse_xps_csv(raw)
 
     # ===== X軸範囲の決定 =====
     def get_xlim():
