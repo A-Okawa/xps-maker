@@ -166,6 +166,7 @@ def read_xps_csv(file_bytes: bytes):
         result = {
             "energy": pd.to_numeric(df[energy_col], errors="coerce").values,
             "spectrum": None,
+            "composite": None,
             "background": None,
             "components": [],
             "component_names": [],
@@ -175,8 +176,13 @@ def read_xps_csv(file_bytes: bytes):
                 continue
             vals = pd.to_numeric(df[col], errors="coerce").values
             col_lower = col.lower()
-            if "spectrum" in col_lower or col_lower == "intensity":
+            if "composite" in col_lower or "envelope" in col_lower:
+                result["composite"] = vals
+            elif col_lower in ("spectrum", "intensity", "counts", "cps"):
                 result["spectrum"] = vals
+            elif "spectrum" in col_lower or col_lower == "intensity":
+                if result["spectrum"] is None:
+                    result["spectrum"] = vals
             elif "background" in col_lower or "bg" in col_lower or "backgr" in col_lower:
                 result["background"] = vals
             elif col.startswith("[") or "component" in col_lower or "peak" in col_lower:
@@ -220,6 +226,8 @@ _auto_lo, _auto_hi = st.session_state.get("auto_xlim", (0.0, 1200.0))
 
 st.sidebar.header("⚙️ グラフ設定")
 reverse_x     = st.sidebar.checkbox("X軸を反転（Binding Energy）", value=True)
+show_spectrum   = st.sidebar.checkbox("スペクトル（実験値）を表示", value=True)
+show_composite  = st.sidebar.checkbox("コンポジットスペクトルを表示", value=True)
 show_background = st.sidebar.checkbox("バックグラウンドを表示", value=True)
 show_components = st.sidebar.checkbox("ピーク成分を表示", value=True)
 fill_components = st.sidebar.checkbox("ピーク成分を塗りつぶす", value=True) if show_components else False
@@ -404,27 +412,35 @@ if xps_files:
                 continue
 
             energy   = d["energy"]
-            spectrum = d["spectrum"].copy()
+            spectrum = d["spectrum"].copy() if d["spectrum"] is not None else None
+            comp_sp  = d["composite"].copy() if d.get("composite") is not None else None
 
             # 範囲フィルタ
             if x_min_xps is not None:
                 mask = (energy >= x_min_xps) & (energy <= x_max_xps)
                 energy   = energy[mask]
-                spectrum = spectrum[mask]
+                if spectrum is not None:
+                    spectrum = spectrum[mask]
+                if comp_sp is not None:
+                    comp_sp  = comp_sp[mask]
                 bkg   = d["background"][mask] if d["background"] is not None else None
                 comps = [c[mask] for c in d["components"]]
             else:
                 bkg   = d["background"]
                 comps = d["components"]
 
-            if np.max(spectrum) <= 0:
+            ref = spectrum if spectrum is not None else comp_sp
+            if ref is None or np.max(ref) <= 0:
                 continue
 
             extra_off = float(st.session_state.get(f"extra_offset_{i}", 0.0))
 
             if normalize:
-                scale    = np.max(spectrum)
-                spectrum = spectrum / scale
+                scale    = np.max(ref)
+                if spectrum is not None:
+                    spectrum = spectrum / scale
+                if comp_sp is not None:
+                    comp_sp  = comp_sp / scale
                 bkg      = bkg / scale if bkg is not None else None
                 comps    = [c / scale for c in comps]
                 y_base   = cumulative_y + extra_off
@@ -432,11 +448,16 @@ if xps_files:
             else:
                 y_base = extra_off
 
-            y_plot = spectrum + y_base
-            side_labels.append((y_base + label_offset_y * np.max(spectrum), colors_sel[i], labels[i]))
+            ref_max = np.max(ref)
+            side_labels.append((y_base + label_offset_y * ref_max, colors_sel[i], labels[i]))
 
-            ax.plot(energy, y_plot, color=colors_sel[i], linewidth=1.5,
-                    label=labels[i], zorder=3)
+            if show_spectrum and spectrum is not None:
+                ax.plot(energy, spectrum + y_base, color=colors_sel[i], linewidth=1.5,
+                        label=labels[i], zorder=3)
+
+            if show_composite and comp_sp is not None:
+                ax.plot(energy, comp_sp + y_base, color="#000000", linewidth=1.5,
+                        label=None, zorder=4)
 
             if show_background and bkg is not None:
                 ax.plot(energy, bkg + y_base, color=bg_color,
@@ -497,16 +518,20 @@ if xps_files:
             if not visibles[i]:
                 continue
             d = load_data(i)
-            if d is None or d["spectrum"] is None:
+            if d is None or (d["spectrum"] is None and d.get("composite") is None):
                 continue
 
             energy   = d["energy"]
-            spectrum = d["spectrum"].copy()
+            spectrum = d["spectrum"].copy() if d["spectrum"] is not None else None
+            comp_sp  = d["composite"].copy() if d.get("composite") is not None else None
 
             if x_min_xps is not None:
                 mask = (energy >= x_min_xps) & (energy <= x_max_xps)
                 energy   = energy[mask]
-                spectrum = spectrum[mask]
+                if spectrum is not None:
+                    spectrum = spectrum[mask]
+                if comp_sp is not None:
+                    comp_sp  = comp_sp[mask]
                 bkg   = d["background"][mask] if d["background"] is not None else None
                 comps = [c[mask] for c in d["components"]]
                 cnames = d["component_names"]
@@ -515,14 +540,18 @@ if xps_files:
                 comps = d["components"]
                 cnames = d["component_names"]
 
-            if len(spectrum) == 0 or np.max(spectrum) <= 0:
+            ref = spectrum if spectrum is not None else comp_sp
+            if ref is None or len(ref) == 0 or np.max(ref) <= 0:
                 continue
 
             extra_off = float(st.session_state.get(f"extra_offset_{i}", 0.0))
 
             if normalize:
-                scale    = np.max(spectrum)
-                spectrum = spectrum / scale
+                scale    = np.max(ref)
+                if spectrum is not None:
+                    spectrum = spectrum / scale
+                if comp_sp is not None:
+                    comp_sp  = comp_sp / scale
                 bkg      = bkg / scale if bkg is not None else None
                 comps    = [c / scale for c in comps]
                 y_base   = cumulative_y + extra_off
@@ -530,13 +559,19 @@ if xps_files:
             else:
                 y_base = extra_off
 
-            y_plot = spectrum + y_base
+            if show_spectrum and spectrum is not None:
+                pfig.add_trace(go.Scatter(
+                    x=energy, y=spectrum + y_base, name=labels[i],
+                    line=dict(color=colors_sel[i], width=1.5),
+                    mode="lines", showlegend=show_legend,
+                ))
 
-            pfig.add_trace(go.Scatter(
-                x=energy, y=y_plot, name=labels[i],
-                line=dict(color=colors_sel[i], width=1.5),
-                mode="lines", showlegend=show_legend,
-            ))
+            if show_composite and comp_sp is not None:
+                pfig.add_trace(go.Scatter(
+                    x=energy, y=comp_sp + y_base,
+                    line=dict(color="#000000", width=1.5),
+                    mode="lines", showlegend=False,
+                ))
 
             if show_background and bkg is not None:
                 pfig.add_trace(go.Scatter(
@@ -567,7 +602,7 @@ if xps_files:
                     ))
 
             if show_side_labels:
-                y_label = y_base + label_offset_y * np.max(spectrum)
+                y_label = y_base + label_offset_y * np.max(ref)
                 if reverse_x:
                     left_x  = xlim_hi - label_offset_x
                     right_x = xlim_lo + label_offset_x
