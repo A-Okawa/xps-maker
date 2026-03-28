@@ -659,17 +659,27 @@ if xps_files:
             "displaylogo": False,
         })
 
-        fig = build_figure()
+        if st.button(f"📊 出力画像を生成 ({dpi_export} DPI)"):
+            fig = build_figure()
+            tiff_buf = io.BytesIO()
+            fig.savefig(tiff_buf, format="tiff", dpi=dpi_export, bbox_inches="tight")
+            png_buf = io.BytesIO()
+            fig.savefig(png_buf, format="png", dpi=96, bbox_inches="tight")
+            plt.close(fig)
+            st.session_state["tiff_bytes"]    = tiff_buf.getvalue()
+            st.session_state["preview_bytes"] = png_buf.getvalue()
+            st.session_state["tiff_dpi"]      = dpi_export
 
-        with st.expander("📄 出力画像プレビュー（論文用 matplotlib）", expanded=False):
-            st.pyplot(fig, use_container_width=True)
+        if "tiff_bytes" in st.session_state:
+            with st.expander("📄 出力画像プレビュー（論文用 matplotlib）", expanded=False):
+                st.image(st.session_state["preview_bytes"])
 
-        buf = io.BytesIO()
-        fig.savefig(buf, format="tiff", dpi=dpi_export, bbox_inches="tight")
-        buf.seek(0)
-        st.download_button(f"📥 TIFF として保存 ({dpi_export} DPI)",
-                           data=buf, file_name="xps_result.tiff", mime="image/tiff")
-        plt.close(fig)
+            st.download_button(
+                f"📥 TIFF として保存 ({st.session_state['tiff_dpi']} DPI)",
+                data=st.session_state["tiff_bytes"],
+                file_name="xps_result.tiff",
+                mime="image/tiff",
+            )
 
 else:
     st.info("サイドバーから XPS データファイル（.csv）をアップロードしてください。")
