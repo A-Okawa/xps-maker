@@ -12,7 +12,7 @@ import io
 import os
 
 # ===== ページ設定 =====
-st.set_page_config(page_title="XPS Analyzer", page_icon="⚡", layout="wide")
+st.set_page_config(page_title="XPS Maker", page_icon="⚡", layout="wide")
 
 # ===== パスワード認証 =====
 def check_password():
@@ -22,7 +22,7 @@ def check_password():
         pwd = st.secrets.get("password", "")
     except Exception:
         pwd = ""
-    st.title("⚡ XPS Analyzer")
+    st.title("⚡ XPS Maker")
     entered = st.text_input("パスワードを入力してください", type="password")
     if st.button("ログイン"):
         if entered == pwd:
@@ -41,7 +41,7 @@ html, body, [class*="css"] { font-family: Arial, sans-serif !important; }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("XPS Analyzer")
+st.title("XPS Maker")
 st.caption("複数スペクトル重ね合わせ・バックグラウンド・ピーク成分・論文用TIFF出力")
 
 # ===== 24色パレット（6系統 × 4色） =====
