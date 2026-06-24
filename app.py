@@ -295,6 +295,8 @@ st.sidebar.subheader("バックグラウンド・成分の表示")
 bg_color  = st.sidebar.color_picker("バックグラウンドの色", value="#808080")
 bg_alpha  = st.sidebar.slider("バックグラウンド透明度", 0.1, 1.0, 0.5, step=0.05)
 comp_alpha = st.sidebar.slider("ピーク成分透明度", 0.1, 1.0, 0.6, step=0.05) if show_components else 0.6
+show_comp_labels = st.sidebar.checkbox("成分名をピーク上に表示", value=False) if show_components else False
+comp_label_fontsize = st.sidebar.slider("成分ラベルサイズ", 5, 16, 9) if show_comp_labels else 9
 
 st.sidebar.header("📐 図サイズ・出力")
 fig_width  = st.sidebar.slider("図の幅 (inch)", 4.0, 20.0, 8.0, step=0.5)
@@ -511,6 +513,13 @@ if xps_files:
                         ax.fill_between(energy, base_line, y_comp,
                                         color=cc, alpha=comp_alpha, zorder=1)
                     ax.plot(energy, y_comp, color=cc, linewidth=0.8, alpha=0.8, zorder=2)
+                    if show_comp_labels:
+                        cname = d["component_names"][j] if j < len(d["component_names"]) else f"Comp {j+1}"
+                        pk = int(np.argmax(comp))
+                        ax.text(energy[pk], float(y_comp[pk]), cname,
+                                color=cc, fontsize=comp_label_fontsize,
+                                ha="center", va="bottom", zorder=5,
+                                bbox=dict(fc="white", ec="none", alpha=0.7, pad=1))
 
         # サンプルラベル
         if show_side_labels:
@@ -638,6 +647,15 @@ if xps_files:
                         line=dict(color=cc, width=0.8),
                         mode="lines", opacity=0.8, showlegend=False,
                     ))
+                    if show_comp_labels:
+                        pk = int(np.argmax(comp))
+                        pfig.add_trace(go.Scatter(
+                            x=[float(energy[pk])], y=[float(y_comp[pk])],
+                            mode="text", text=[cname],
+                            textposition="top center",
+                            textfont=dict(color=cc, size=comp_label_fontsize, family="Arial"),
+                            showlegend=False, hoverinfo="skip",
+                        ))
 
             if show_side_labels:
                 y_label = y_base + label_offset_y * np.max(ref)
