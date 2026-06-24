@@ -367,6 +367,9 @@ if xps_files:
             colors_sel.append(st.session_state.get(f"xps_color_{f.name}", "#000000"))
         sort_idx = list(range(len(xps_files)))
 
+    # 現在のオフセット値をパネル描画直後に確定（セッションステートの読み取りタイミング問題を回避）
+    extra_offsets = [float(st.session_state.get(f"extra_offset_{i}", 0.0)) for i in range(len(xps_files))]
+
     # ===== データをキャッシュ読み込み =====
     def load_data(i):
         raw = xps_files[i].read()
@@ -440,7 +443,7 @@ if xps_files:
             if ref is None or np.max(ref) <= 0:
                 continue
 
-            extra_off = float(st.session_state.get(f"extra_offset_{i}", 0.0))
+            extra_off = extra_offsets[i]
 
             if normalize:
                 scale    = np.max(ref)
@@ -551,7 +554,7 @@ if xps_files:
             if ref is None or len(ref) == 0 or np.max(ref) <= 0:
                 continue
 
-            extra_off = float(st.session_state.get(f"extra_offset_{i}", 0.0))
+            extra_off = extra_offsets[i]
 
             if normalize:
                 scale    = np.max(ref)
@@ -666,6 +669,15 @@ if xps_files:
             "displaylogo": False,
         })
 
+        # 現在の設定のフィンガープリント（オフセット・主要設定を含む）
+        _current_fp = hash((
+            tuple(extra_offsets),
+            normalize, global_offset,
+            x_min_xps, x_max_xps,
+            show_spectrum, show_composite, show_background, show_components, fill_components,
+            tuple(colors_sel), tuple(visibles),
+        ))
+
         if st.button(f"📊 出力画像を生成 ({dpi_export} DPI)"):
             fig = build_figure()
             tiff_buf = io.BytesIO()
@@ -676,8 +688,12 @@ if xps_files:
             st.session_state["tiff_bytes"]    = tiff_buf.getvalue()
             st.session_state["preview_bytes"] = png_buf.getvalue()
             st.session_state["tiff_dpi"]      = dpi_export
+            st.session_state["export_fp"]     = _current_fp
 
         if "tiff_bytes" in st.session_state:
+            if st.session_state.get("export_fp") != _current_fp:
+                st.warning("⚠️ 設定が変更されています。最新の状態で出力するには「出力画像を生成」を再度押してください。")
+
             with st.expander("📄 出力画像プレビュー（論文用 matplotlib）", expanded=False):
                 st.image(st.session_state["preview_bytes"])
 
