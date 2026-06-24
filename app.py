@@ -211,8 +211,10 @@ xps_files = st.sidebar.file_uploader(
     type=["csv"], accept_multiple_files=True,
 )
 
-# ファイルから auto xlim と成分数を事前読み込み
+# ファイルから auto xlim・成分数・強度を事前読み込み
 _comp_counts = {}
+_max_intensities = {}
+_min_intensities = {}
 if xps_files:
     _all_e = []
     for _idx, _f in enumerate(xps_files):
@@ -224,10 +226,34 @@ if xps_files:
                 if _d["energy"] is not None:
                     _all_e.extend(_d["energy"].tolist())
                 _comp_counts[_idx] = len(_d["components"])
+                if _d["spectrum"] is not None:
+                    _max_intensities[_idx] = float(np.max(_d["spectrum"]))
+                    _min_intensities[_idx] = float(np.min(_d["spectrum"]))
         except Exception:
             _comp_counts[_idx] = 0
     if _all_e:
         st.session_state["auto_xlim"] = (float(min(_all_e)), float(max(_all_e)))
+
+    # ファイルセットが変わった時だけ自動オフセットを計算してリセット
+    _files_id = tuple((f.name, getattr(f, "size", 0)) for f in xps_files)
+    if st.session_state.get("_loaded_files_id") != _files_id:
+        # 古いオフセットキーを削除（スライダー再初期化のため）
+        for _idx in range(len(xps_files) + 10):
+            st.session_state.pop(f"extra_offset_{_idx}", None)
+            st.session_state.pop(f"extra_offset_num_{_idx}", None)
+        # 各スペクトルが重ならないよう自動オフセットを計算
+        _ranges = [_max_intensities.get(i, 1000.0) - _min_intensities.get(i, 0.0)
+                   for i in range(len(xps_files))]
+        _gap = max(float(np.mean(_ranges)) * 0.1, 10.0) if _ranges else 100.0
+        _auto = {}
+        _top = 0.0
+        for _idx in range(len(xps_files)):
+            _mn = _min_intensities.get(_idx, 0.0)
+            _mx = _max_intensities.get(_idx, 1000.0)
+            _auto[_idx] = max(0.0, _top - _mn + _gap) if _idx > 0 else 0.0
+            _top = _auto[_idx] + _mx
+        st.session_state["_auto_offsets"]   = _auto
+        st.session_state["_loaded_files_id"] = _files_id
 
 _auto_lo, _auto_hi = st.session_state.get("auto_xlim", (0.0, 1200.0))
 
@@ -305,9 +331,11 @@ if xps_files:
                         eoff_key     = f"extra_offset_{i}"
                         eoff_num_key = f"extra_offset_num_{i}"
                         if eoff_key not in st.session_state:
-                            st.session_state[eoff_key] = 0.0
+                            _init_off = st.session_state.get("_auto_offsets", {}).get(i, 0.0)
+                            st.session_state[eoff_key] = _init_off
                         if eoff_num_key not in st.session_state:
-                            st.session_state[eoff_num_key] = 0.0
+                            _init_off = st.session_state.get("_auto_offsets", {}).get(i, 0.0)
+                            st.session_state[eoff_num_key] = _init_off
                         if normalize:
                             st.slider("オフセット調整", min_value=-5.0, max_value=15.0,
                                       step=0.05, key=eoff_key)
