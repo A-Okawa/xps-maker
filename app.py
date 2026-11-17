@@ -715,19 +715,30 @@ if xps_files:
             "displaylogo": False,
         })
 
-        # 現在の設定のフィンガープリント（オフセット・主要設定を含む）
+        # 現在の設定のフィンガープリント（出力図に影響する設定をすべて含める）
+        _comp_style = tuple(sorted(
+            (k, str(v)) for k, v in st.session_state.items()
+            if isinstance(k, str) and k.startswith(("comp_group_", "group_color_"))
+        ))
         _current_fp = hash((
-            tuple(extra_offsets),
+            _files_id,
+            tuple(extra_offsets), tuple(sort_idx),
             normalize, global_offset,
-            x_min_xps, x_max_xps,
+            x_min_xps, x_max_xps, reverse_x,
             show_spectrum, show_composite, show_background, show_components, fill_components,
-            tuple(colors_sel), tuple(visibles),
+            show_legend, tuple(labels), tuple(colors_sel), tuple(visibles),
+            major_tick, show_minor, minor_tick,
+            show_side_labels, label_side, label_fontsize, label_offset_x, label_offset_y,
+            bg_color, bg_alpha, comp_alpha, show_comp_labels, comp_label_fontsize,
+            fig_width, fig_height, dpi_export, font_size,
+            _comp_style,
         ))
 
         if st.button(f"📊 出力画像を生成 ({dpi_export} DPI)"):
             fig = build_figure()
             tiff_buf = io.BytesIO()
-            fig.savefig(tiff_buf, format="tiff", dpi=dpi_export, bbox_inches="tight")
+            fig.savefig(tiff_buf, format="tiff", dpi=dpi_export, bbox_inches="tight",
+                        pil_kwargs={"compression": "tiff_lzw"})
             png_buf = io.BytesIO()
             fig.savefig(png_buf, format="png", dpi=96, bbox_inches="tight")
             plt.close(fig)
@@ -735,6 +746,7 @@ if xps_files:
             st.session_state["preview_bytes"] = png_buf.getvalue()
             st.session_state["tiff_dpi"]      = dpi_export
             st.session_state["export_fp"]     = _current_fp
+            st.session_state["export_id"]     = st.session_state.get("export_id", 0) + 1
 
         if "tiff_bytes" in st.session_state:
             if st.session_state.get("export_fp") != _current_fp:
@@ -748,6 +760,8 @@ if xps_files:
                 data=st.session_state["tiff_bytes"],
                 file_name="xps_result.tiff",
                 mime="image/tiff",
+                # 生成のたびに別のボタンとして描画し、前回の画像が残らないようにする
+                key=f"dl_tiff_{st.session_state.get('export_id', 0)}",
             )
 
 else:
