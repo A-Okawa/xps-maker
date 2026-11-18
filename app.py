@@ -227,8 +227,8 @@ if xps_files:
                     _all_e.extend(_d["energy"].tolist())
                 _comp_counts[_idx] = len(_d["components"])
                 if _d["spectrum"] is not None:
-                    _max_intensities[_idx] = float(np.max(_d["spectrum"]))
-                    _min_intensities[_idx] = float(np.min(_d["spectrum"]))
+                    _max_intensities[_idx] = float(np.nanmax(_d["spectrum"]))
+                    _min_intensities[_idx] = float(np.nanmin(_d["spectrum"]))
         except Exception:
             _comp_counts[_idx] = 0
     if _all_e:
@@ -237,10 +237,6 @@ if xps_files:
     # ファイルセットが変わった時だけ自動オフセットを計算してリセット
     _files_id = tuple((f.name, getattr(f, "size", 0)) for f in xps_files)
     if st.session_state.get("_loaded_files_id") != _files_id:
-        # 古いオフセットキーを削除（スライダー再初期化のため）
-        for _idx in range(len(xps_files) + 10):
-            st.session_state.pop(f"extra_offset_{_idx}", None)
-            st.session_state.pop(f"extra_offset_num_{_idx}", None)
         # 各スペクトルが重ならないよう自動オフセットを計算
         _ranges = [_max_intensities.get(i, 1000.0) - _min_intensities.get(i, 0.0)
                    for i in range(len(xps_files))]
@@ -253,9 +249,20 @@ if xps_files:
             _auto[_idx] = max(0.0, _top - _mn + _gap) if _idx > 0 else 0.0
             _top = _auto[_idx] + _mx
         st.session_state["_auto_offsets"]   = _auto
+        # オフセットは正規化あり／なしで単位が違うため別々に保持する
+        #   _offv_raw_i : 強度そのまま（自動で重ならない位置に配置）
+        #   _offv_norm_i: 正規化時の微調整（0 = 等間隔）
+        for _idx in range(len(xps_files)):
+            st.session_state[f"_offv_raw_{_idx}"]  = float(_auto[_idx])
+            st.session_state[f"_offv_norm_{_idx}"] = 0.0
         st.session_state["_loaded_files_id"] = _files_id
 
 _auto_lo, _auto_hi = st.session_state.get("auto_xlim", (0.0, 1200.0))
+
+# 強度そのまま表示するときの Y 位置スライダーの範囲（データの大きさに合わせる）
+_raw_total = float(sum(v for v in _max_intensities.values() if np.isfinite(v))) if _max_intensities else 0.0
+_raw_off_hi = max(500000.0, float(np.ceil(2.0 * _raw_total / 1e5) * 1e5))
+_raw_off_lo = -_raw_off_hi / 5.0
 
 st.sidebar.header("⚙️ グラフ設定")
 reverse_x     = st.sidebar.checkbox("X軸を反転（Binding Energy）", value=True)
@@ -264,9 +271,13 @@ show_composite  = st.sidebar.checkbox("コンポジットスペクトルを表�
 show_background = st.sidebar.checkbox("バックグラウンドを表示", value=True)
 show_components = st.sidebar.checkbox("ピーク成分を表示", value=True)
 fill_components = st.sidebar.checkbox("ピーク成分を塗りつぶす", value=True) if show_components else False
-normalize     = st.sidebar.checkbox("強度を正規化（最大=1）", value=False)
+normalize     = st.sidebar.checkbox(
+    "強度を正規化（最大=1）", value=False,
+    help="各スペクトルを表示範囲内の最小値=0・最大値=1 にそろえ、等間隔で積み上げます。")
 show_legend   = st.sidebar.checkbox("凡例を表示", value=True)
-global_offset = st.sidebar.slider("オフセット間隔（倍率）", 0.0, 3.0, 1.0, step=0.05) if normalize else None
+global_offset = st.sidebar.slider(
+    "オフセット間隔（倍率）", 0.0, 3.0, 1.0, step=0.05,
+    help="1.0 で、最も高いピークの頂点が 1 つ上のスペクトルの下端にちょうど接します。") if normalize else None
 
 x_range_auto = st.sidebar.checkbox("X軸範囲を自動設定", value=True)
 if not x_range_auto:
@@ -287,9 +298,9 @@ if show_side_labels:
     label_side     = st.sidebar.radio("ラベル位置", ["左", "右"], horizontal=True)
     label_fontsize = st.sidebar.slider("ラベル文字サイズ", 5, 24, 11)
     label_offset_x = st.sidebar.slider("横オフセット (eV)", -5.0, 5.0, 0.5, step=0.1)
-    label_offset_y = st.sidebar.slider("縦オフセット（パターン高さ比）", -0.3, 1.0, 0.05, step=0.01)
+    label_offset_y = st.sidebar.slider("縦オフセット（パターン高さ比）", -0.3, 1.0, 0.15, step=0.01)
 else:
-    label_side, label_fontsize, label_offset_x, label_offset_y = "右", 11, 0.5, 0.05
+    label_side, label_fontsize, label_offset_x, label_offset_y = "右", 11, 0.5, 0.15
 
 st.sidebar.subheader("バックグラウンド・成分の表示")
 bg_color  = st.sidebar.color_picker("バックグラウンドの色", value="#808080")
@@ -303,6 +314,9 @@ fig_width  = st.sidebar.slider("図の幅 (inch)", 4.0, 20.0, 8.0, step=0.5)
 fig_height = st.sidebar.slider("図の高さ (inch)", 3.0, 20.0, 6.0, step=0.5)
 dpi_export = st.sidebar.selectbox("出力 DPI", [300, 600], index=0)
 font_size  = st.sidebar.slider("フォントサイズ", 8, 20, 14)
+line_width = st.sidebar.slider("線の太さ（スペクトル）", 0.5, 4.0, 1.5, step=0.1)
+comp_line_width = st.sidebar.slider("線の太さ（成分・バックグラウンド）", 0.2, 3.0, 0.8, step=0.1)
+bg_line_width = comp_line_width * 1.25
 
 # ===== メインエリア =====
 if xps_files:
@@ -329,30 +343,30 @@ if xps_files:
                         label   = label_input(key=f"lbl_{i}", default=default_name)
                         chosen_color = color_picker_popover(f"xps_color_{f.name}", default_hex)
 
-                        # 個別オフセット
-                        eoff_key     = f"extra_offset_{i}"
-                        eoff_num_key = f"extra_offset_num_{i}"
-                        if eoff_key not in st.session_state:
-                            _init_off = st.session_state.get("_auto_offsets", {}).get(i, 0.0)
-                            st.session_state[eoff_key] = _init_off
-                        if eoff_num_key not in st.session_state:
-                            _init_off = st.session_state.get("_auto_offsets", {}).get(i, 0.0)
-                            st.session_state[eoff_num_key] = _init_off
+                        # 個別オフセット（値は _offv_* に保持し、ウィジェットは毎回そこから復元する）
                         if normalize:
+                            vkey, wkey = f"_offv_norm_{i}", f"w_off_norm_{i}"
+                            def _keep_norm(vk=vkey, wk=wkey):
+                                st.session_state[vk] = float(st.session_state[wk])
+                            st.session_state[wkey] = float(min(15.0, max(-5.0, st.session_state.get(vkey, 0.0))))
                             st.slider("オフセット調整", min_value=-5.0, max_value=15.0,
-                                      step=0.05, key=eoff_key)
+                                      step=0.05, key=wkey, on_change=_keep_norm)
                         else:
-                            def _from_slider(ek=eoff_key, nk=eoff_num_key):
-                                st.session_state[nk] = st.session_state[ek]
-                            def _from_num(ek=eoff_key, nk=eoff_num_key):
-                                st.session_state[ek] = st.session_state[nk]
+                            vkey = f"_offv_raw_{i}"
+                            skey, nkey = f"w_off_raw_{i}", f"w_offnum_raw_{i}"
+                            def _keep_raw(vk=vkey, wk=skey):
+                                st.session_state[vk] = float(st.session_state[wk])
+                            def _keep_raw_num(vk=vkey, wk=nkey):
+                                st.session_state[vk] = float(st.session_state[wk])
+                            _cur = float(st.session_state.get(vkey, 0.0))
+                            st.session_state[skey] = float(min(_raw_off_hi, max(_raw_off_lo, _cur)))
+                            st.session_state[nkey] = _cur
                             col_sl, col_ni = st.columns([3, 2])
                             with col_sl:
-                                st.slider("Y位置（絶対値）", min_value=-100000.0, max_value=500000.0,
-                                          step=100.0, key=eoff_key, on_change=_from_slider)
+                                st.slider("Y位置（絶対値）", min_value=_raw_off_lo, max_value=_raw_off_hi,
+                                          step=100.0, key=skey, on_change=_keep_raw)
                             with col_ni:
-                                st.number_input("数値入力 (eV)", value=float(st.session_state[eoff_num_key]),
-                                               step=100.0, key=eoff_num_key, on_change=_from_num)
+                                st.number_input("数値入力", step=100.0, key=nkey, on_change=_keep_raw_num)
 
                         # 成分の色設定
                         n_comps = _comp_counts.get(i, 0)
@@ -388,17 +402,15 @@ if xps_files:
                 sort_idx = sorted(range(len(xps_files)), key=lambda i: orders[i])
     else:
         for i, f in enumerate(xps_files):
-            eoff_key = f"extra_offset_{i}"
-            if eoff_key not in st.session_state:
-                st.session_state[eoff_key] = 0.0
             orders.append(i + 1)
             visibles.append(st.session_state.get(f"vis_{i}", True))
             labels.append(st.session_state.get(f"_val_lbl_{i}", os.path.splitext(f.name)[0]))
             colors_sel.append(st.session_state.get(f"xps_color_{f.name}", "#000000"))
         sort_idx = list(range(len(xps_files)))
 
-    # 現在のオフセット値をパネル描画直後に確定（セッションステートの読み取りタイミング問題を回避）
-    extra_offsets = [float(st.session_state.get(f"extra_offset_{i}", 0.0)) for i in range(len(xps_files))]
+    # 現在のオフセット値（正規化あり／なしで別の値を使う）
+    _off_prefix = "_offv_norm_" if normalize else "_offv_raw_"
+    extra_offsets = [float(st.session_state.get(f"{_off_prefix}{i}", 0.0)) for i in range(len(xps_files))]
 
     # ===== データをキャッシュ読み込み =====
     def load_data(i):
@@ -475,33 +487,36 @@ if xps_files:
 
             extra_off = extra_offsets[i]
 
+            ref_lo, ref_hi = float(np.nanmin(ref)), float(np.nanmax(ref))
             if normalize:
-                scale    = np.max(ref)
+                # 表示範囲内の最小=0・最大=1 にそろえる（バックグラウンドの高さで隙間ができないように）
+                scale    = (ref_hi - ref_lo) if ref_hi > ref_lo else 1.0
                 if spectrum is not None:
-                    spectrum = spectrum / scale
+                    spectrum = (spectrum - ref_lo) / scale
                 if comp_sp is not None:
-                    comp_sp  = comp_sp / scale
-                bkg      = bkg / scale if bkg is not None else None
-                comps    = [c / scale for c in comps]
+                    comp_sp  = (comp_sp - ref_lo) / scale
+                bkg      = (bkg - ref_lo) / scale if bkg is not None else None
+                comps    = [(c - ref_lo) / scale for c in comps]
                 y_base   = cumulative_y + extra_off
-                cumulative_y += (global_offset or 1.0)
+                cumulative_y += (global_offset if global_offset is not None else 1.0)
+                label_y  = y_base + label_offset_y
             else:
                 y_base = extra_off
+                label_y  = y_base + ref_lo + label_offset_y * (ref_hi - ref_lo)
 
-            ref_max = np.max(ref)
-            side_labels.append((y_base + label_offset_y * ref_max, colors_sel[i], labels[i]))
+            side_labels.append((label_y, colors_sel[i], labels[i]))
 
             if show_spectrum and spectrum is not None:
-                ax.plot(energy, spectrum + y_base, color=colors_sel[i], linewidth=1.5,
+                ax.plot(energy, spectrum + y_base, color=colors_sel[i], linewidth=line_width,
                         label=labels[i], zorder=3)
 
             if show_composite and comp_sp is not None:
-                ax.plot(energy, comp_sp + y_base, color="#000000", linewidth=1.5,
+                ax.plot(energy, comp_sp + y_base, color="#000000", linewidth=line_width,
                         label=None, zorder=4)
 
             if show_background and bkg is not None:
                 ax.plot(energy, bkg + y_base, color=bg_color,
-                        linestyle="--", linewidth=1.0, alpha=bg_alpha, zorder=2)
+                        linestyle="--", linewidth=bg_line_width, alpha=bg_alpha, zorder=2)
 
             if show_components and comps:
                 for j, comp in enumerate(comps):
@@ -512,7 +527,7 @@ if xps_files:
                     if fill_components:
                         ax.fill_between(energy, base_line, y_comp,
                                         color=cc, alpha=comp_alpha, zorder=1)
-                    ax.plot(energy, y_comp, color=cc, linewidth=0.8, alpha=0.8, zorder=2)
+                    ax.plot(energy, y_comp, color=cc, linewidth=comp_line_width, alpha=0.8, zorder=2)
                     if show_comp_labels:
                         cname = d["component_names"][j] if j < len(d["component_names"]) else f"Comp {j+1}"
                         pk = int(np.argmax(comp))
@@ -593,37 +608,41 @@ if xps_files:
 
             extra_off = extra_offsets[i]
 
+            ref_lo, ref_hi = float(np.nanmin(ref)), float(np.nanmax(ref))
             if normalize:
-                scale    = np.max(ref)
+                # 表示範囲内の最小=0・最大=1 にそろえる（バックグラウンドの高さで隙間ができないように）
+                scale    = (ref_hi - ref_lo) if ref_hi > ref_lo else 1.0
                 if spectrum is not None:
-                    spectrum = spectrum / scale
+                    spectrum = (spectrum - ref_lo) / scale
                 if comp_sp is not None:
-                    comp_sp  = comp_sp / scale
-                bkg      = bkg / scale if bkg is not None else None
-                comps    = [c / scale for c in comps]
+                    comp_sp  = (comp_sp - ref_lo) / scale
+                bkg      = (bkg - ref_lo) / scale if bkg is not None else None
+                comps    = [(c - ref_lo) / scale for c in comps]
                 y_base   = cumulative_y + extra_off
-                cumulative_y += (global_offset or 1.0)
+                cumulative_y += (global_offset if global_offset is not None else 1.0)
+                label_y  = y_base + label_offset_y
             else:
                 y_base = extra_off
+                label_y  = y_base + ref_lo + label_offset_y * (ref_hi - ref_lo)
 
             if show_spectrum and spectrum is not None:
                 pfig.add_trace(go.Scatter(
                     x=energy, y=spectrum + y_base, name=labels[i],
-                    line=dict(color=colors_sel[i], width=1.5),
+                    line=dict(color=colors_sel[i], width=line_width),
                     mode="lines", showlegend=show_legend,
                 ))
 
             if show_composite and comp_sp is not None:
                 pfig.add_trace(go.Scatter(
                     x=energy, y=comp_sp + y_base,
-                    line=dict(color="#000000", width=1.5),
+                    line=dict(color="#000000", width=line_width),
                     mode="lines", showlegend=False,
                 ))
 
             if show_background and bkg is not None:
                 pfig.add_trace(go.Scatter(
                     x=energy, y=bkg + y_base,
-                    line=dict(color=bg_color, width=1.0, dash="dash"),
+                    line=dict(color=bg_color, width=bg_line_width, dash="dash"),
                     mode="lines", opacity=bg_alpha, showlegend=False,
                 ))
 
@@ -644,7 +663,7 @@ if xps_files:
                         ))
                     pfig.add_trace(go.Scatter(
                         x=energy, y=y_comp,
-                        line=dict(color=cc, width=0.8),
+                        line=dict(color=cc, width=comp_line_width),
                         mode="lines", opacity=0.8, showlegend=False,
                     ))
                     if show_comp_labels:
@@ -658,7 +677,7 @@ if xps_files:
                         ))
 
             if show_side_labels:
-                y_label = y_base + label_offset_y * np.max(ref)
+                y_label = label_y
                 if reverse_x:
                     left_x  = xlim_hi - label_offset_x
                     right_x = xlim_lo + label_offset_x
@@ -731,6 +750,7 @@ if xps_files:
             show_side_labels, label_side, label_fontsize, label_offset_x, label_offset_y,
             bg_color, bg_alpha, comp_alpha, show_comp_labels, comp_label_fontsize,
             fig_width, fig_height, dpi_export, font_size,
+            line_width, comp_line_width,
             _comp_style,
         ))
 
